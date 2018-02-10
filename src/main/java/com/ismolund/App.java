@@ -9,13 +9,14 @@ public class App
     private static ServerSocket server;
     private static Socket clientSocket;
     private static DataInputStream input;
-    private static PrintStream output;
+    private static DataOutputStream output;
     private static BufferedReader reader;
 
     private static void setUpConnection() throws IOException {
         clientSocket = server.accept();
         input = new DataInputStream(clientSocket.getInputStream());
-        output = new PrintStream(clientSocket.getOutputStream());
+        output = new DataOutputStream(clientSocket.getOutputStream());
+        output.writeBytes("hello i am server\n");
 
         reader = new BufferedReader(new InputStreamReader(input));
     }
@@ -36,15 +37,19 @@ public class App
             setUpConnection();
 
             while (true) {
-                String outputString = reader.readLine();
-                if (outputString != null) {
-                    if (outputString.contains("quit")) {
+                String clientOutput = reader.readLine();
+                if (clientOutput != null) {
+                    if (clientOutput.contains("quit")) {
                         break;
                     } else {
-                        System.out.println(outputString + "\n");
+                        System.out.println(clientOutput + "\n");
+                        if (clientOutput.contains("turn")) {
+                            System.out.println("Turn ended - sending response");
+                            output.writeBytes("response\n");
+                        }
                     }
 
-                    if (outputString.contains("disconnected")) {
+                    if (clientOutput.contains("disconnected")) {
                         System.out.println("Resetting socket...");
                         input.close();
                         output.close();
