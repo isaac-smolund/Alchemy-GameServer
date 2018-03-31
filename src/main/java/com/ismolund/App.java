@@ -12,6 +12,8 @@ public class App
     private static DataOutputStream output;
     private static BufferedReader reader;
 
+    private static String mostRecentState = "";
+
     private static void setUpConnection() throws IOException {
         clientSocket = server.accept();
         input = new DataInputStream(clientSocket.getInputStream());
@@ -42,10 +44,25 @@ public class App
                     if (clientOutput.contains("quit")) {
                         break;
                     } else {
-                        System.out.println(clientOutput + "\n");
-                        if (clientOutput.contains("turn")) {
-                            System.out.println("Turn ended - sending response");
-                            output.writeBytes("response\n");
+                        if (!clientOutput.startsWith("{")) {
+                            System.out.println(clientOutput + "\n");
+                        } else {
+                            mostRecentState = clientOutput;
+                        }
+                        if (clientOutput.contains("Player 2's turn")) {
+                            Thread.sleep(1000);
+                            String response = mostRecentState.replaceAll("30", "25");
+                            output.writeBytes(response + "\n");
+                            output.writeBytes("end turn\n");
+//                            System.out.println("Turn started - choosing energy");
+//                            output.writeBytes("yellow\n");
+//                            Thread.sleep(1000);
+//                            System.out.println("playing card");
+//                            output.writeBytes("play Scrumpo Bungus\n");
+//                            Thread.sleep(1000);
+//                            System.out.println("ending turn");
+//                            output.writeBytes("end turn\n");
+
                         }
                     }
 
@@ -60,6 +77,8 @@ public class App
             }
 
         } catch (IOException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
             e.printStackTrace();
         }
 
