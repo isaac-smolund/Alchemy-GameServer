@@ -3,24 +3,88 @@ package com.ismolund;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashMap;
+import java.util.Map;
 
 public class App
 {
     private static ServerSocket server;
     private static Socket clientSocket;
-    private static DataInputStream input;
-    private static DataOutputStream output;
     private static BufferedReader reader;
 
     private static String mostRecentState = "";
+    private static final Map<ConnectionName, ConnectionHandler> connections
+            = new HashMap<>();
+    private static final Map<ConnectionName, String> messageQueue
+            = new HashMap<>();
 
-    private static void setUpConnection() throws IOException {
-        clientSocket = server.accept();
-        input = new DataInputStream(clientSocket.getInputStream());
-        output = new DataOutputStream(clientSocket.getOutputStream());
-        output.writeBytes("hello i am server\n");
+    private static boolean running = true;
+    private static boolean lock = false;
 
-        reader = new BufferedReader(new InputStreamReader(input));
+    public enum ConnectionName {A, B, SURPLUS};
+
+    public static boolean running() {
+        return running;
+    }
+
+    private static class ConnectionThread extends Thread {
+        @Override
+        public void run() {
+            while (running) {
+                // Check for connections:
+                try {
+                    clientSocket = server.accept();
+                } catch (IOException e) {
+                    System.out.println("Could not establish connection to client.");
+                    e.printStackTrace();
+                }
+                ConnectionName name = ConnectionName.SURPLUS;
+                if (!connections.containsKey(ConnectionName.A)) {
+                    name = ConnectionName.A;
+                } else if (!connections.containsKey(ConnectionName.B)) {
+                    name = ConnectionName.B;
+                }
+                ConnectionHandler connectionHandler = new ConnectionHandler(clientSocket, name);
+                connections.put(name, connectionHandler);
+                new Thread(connectionHandler).start();
+                System.out.println("Started thread " + name + ".");
+
+                // Check for messages:
+                if (!messageQueue.isEmpty()) {
+                    //TODO: Factor this into helper method:
+                    for (Map.Entry<ConnectionName, String> message : messageQueue.entrySet()) {
+                        System.out.println("Sending message \"" + message.getValue() + "\" to client " + message.getKey());
+                        ConnectionHandler handler = connections.get(message.getKey());
+                        if (handler != null) {
+                            handler.sendMessage(message.getValue());
+                            //TODO: move this to ConnectionHandler
+                            if (message.getValue().contains("disconnected")) {
+                                System.out.println("Client " + message.getKey() + " left! Resetting socket...");
+                                handler.shutdown();
+                                connections.remove(message.getKey());
+                            }
+                        } else {
+                            System.out.println("Handler for client " + message.getKey() + " was null!");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static void messageReceived(ConnectionName connection, String message) {
+        if (connection.equals(ConnectionName.SURPLUS)) {
+            return;
+        }
+        if (!lock) {
+            System.out.println("Queuing message for connection " + connection);
+            lock = true;
+            ConnectionName toSend = connection == ConnectionName.A ? ConnectionName.B : ConnectionName.A;
+            messageQueue.put(toSend, message);
+//            ConnectionHandler handler = connections.get(toSend);
+//            handler.sendMessage(message);
+            lock = false;
+        }
     }
 
     public static void main( String[] args )
@@ -35,59 +99,61 @@ public class App
             return;
         }
 
-        try {
-            setUpConnection();
+        new ConnectionThread().start();
 
+//        try {
             while (true) {
-                String clientOutput = reader.readLine();
-                if (clientOutput != null) {
-                    if (clientOutput.contains("quit")) {
-                        break;
-                    } else {
-                        if (!clientOutput.startsWith("{")) {
-                            System.out.println(clientOutput + "\n");
+                if (!messageQueue.isEmpty()) {
+                    for (Map.Entry<ConnectionName, String> message : messageQueue.entrySet()) {
+                        System.out.println("Sending message \"" + message.getValue() + "\" to client " + message.getKey());
+                        ConnectionHandler handler = connections.get(message.getKey());
+                        if (handler != null) {
+                            handler.sendMessage(message.getValue());
                         } else {
-                            mostRecentState = clientOutput;
-                        }
-                        if (clientOutput.contains("Player 2's turn")) {
-                            Thread.sleep(1000);
-                            String response = mostRecentState.replaceAll("30", "25");
-                            output.writeBytes(response + "\n");
-                            output.writeBytes("end turn\n");
-//                            System.out.println("Turn started - choosing energy");
-//                            output.writeBytes("yellow\n");
-//                            Thread.sleep(1000);
-//                            System.out.println("playing card");
-//                            output.writeBytes("play Scrumpo Bungus\n");
-//                            Thread.sleep(1000);
-//                            System.out.println("ending turn");
-//                            output.writeBytes("end turn\n");
-
+                            System.out.println("Handler for client " + message.getKey() + " was null!");
                         }
                     }
-
-                    if (clientOutput.contains("disconnected")) {
-                        System.out.println("Resetting socket...");
-                        input.close();
-                        output.close();
-                        clientSocket.close();
-                        setUpConnection();
-                    }
+                    //TODO: remove commented code
+//                setUpConnection();
+//                String clientOutput = reader.readLine();
+//                if (clientOutput != null) {
+//                    if (clientOutput.contains("quit")) {
+//                        running = false;
+//                        break;
+//                    } else {
+//                        if (!clientOutput.startsWith("{")) {
+//                            System.out.println(clientOutput + "\n");
+//                        } else {
+//                            mostRecentState = clientOutput;
+//                        }
+//                        if (clientOutput.contains("Player 2's turn")) {
+//                            Thread.sleep(1000);
+//                            String response = mostRecentState.replaceAll("30", "25");
+//                            outputA.writeBytes(response + "\n");
+//                            outputA.writeBytes("end turn\n");
+//                        }
+//                    }
+//
+//                    if (clientOutput.contains("disconnected")) {
+//                        System.out.println("Resetting socket...");
+//                        inputA.close();
+//                        outputA.close();
+//                        clientSocket.close();
+//                        setUpConnection();
+//                    }
                 }
             }
 
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        } catch (InterruptedException e) {
+//            e.printStackTrace();
+//        }
 
     }
 
     private static void shutdown() {
         try {
-            output.close();
-            input.close();
             clientSocket.close();
             server.close();
         } catch (IOException e) {
